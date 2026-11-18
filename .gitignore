@@ -1,0 +1,10 @@
+# Respaldos o dumps locales que no deben subirse
+*.bak
+*_backup.sql
+
+# Sistema operativo / editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

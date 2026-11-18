@@ -1,0 +1,8 @@
+# Normaliza finales de línea al clonar en Windows.
+* text=auto
+
+# Los .sql y .yml siempre con LF: el cliente mysql dentro de Docker (Linux)
+# puede interpretar mal un "DELIMITER $$\r". Workbench lee LF sin problema.
+*.sql text eol=lf
+*.yml text eol=lf
+*.md  text eol=lf

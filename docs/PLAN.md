@@ -23,7 +23,7 @@ Primero se resolvió por error el `taller.md` (funciones y procedimientos sobre 
 
 ### Pendiente
 - [ ] Ejecutar en el PC Windows de la universidad con Workbench.
-- [ ] Commits y push.
+- [x] Commits y push.
 - [ ] Decidir si los `apuntes/` deben quedar en un repo público (tienen contraseñas de ejemplo de clase).
 
 ### Hallazgos fuera de alcance (en los apuntes, sin corregir)

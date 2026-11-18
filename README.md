@@ -12,9 +12,11 @@ apuntes/
   taller.md, *.md           Taller anterior y apuntes de clase
 docs/
   MODELO.md                 Punto 1: diagrama ER (Mermaid) y normalización
+  GUIA_EXPOSICION.md        Qué repasar: conceptos, errores, simulacro de preguntas
   PLAN.md                   Plan de trabajo y estado
 sql/
   parcial_veterinaria.sql   Script completo, secciones 1 a 9
+  banco_consultas.sql       Consultas y código que el profesor podría pedir en vivo
 docker-compose.yml          Plan B si el PC no tiene MySQL
 ```
 

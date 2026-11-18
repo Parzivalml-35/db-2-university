@@ -1,90 +1,72 @@
-# Taller: Funciones y Procedimientos Almacenados en MySQL
+# Parcial Final · Bases de Datos II
 
-Solución del taller de **Bases de Datos II** sobre la base de datos `university` y la tabla `users`:
-3 funciones (cálculos que se usan dentro de un `SELECT`) y 3 procedimientos (se llaman con `CALL` y devuelven datos por parámetros `OUT`).
+**Caso 2: Clínica Veterinaria "Huellas"**. Un único script SQL que cumple los 9 requerimientos de [`apuntes/parcial_final.md`](apuntes/parcial_final.md).
 
-Probado en **MySQL 8.4** y **MariaDB 11**.
+Probado en **MySQL 8.4**. Requiere MySQL 8.0.16 o superior (roles y `CHECK`).
 
 ## Contenido
 
 ```
-apuntes/                         Enunciado del taller y apuntes de clase
+apuntes/
+  parcial_final.md          Enunciado del parcial
+  taller.md, *.md           Taller anterior y apuntes de clase
+docs/
+  MODELO.md                 Punto 1: diagrama ER (Mermaid) y normalización
+  PLAN.md                   Plan de trabajo y estado
 sql/
-  00_esquema_y_datos.sql         Crea la BD university, la tabla users y 10 filas de prueba
-  funciones/
-    01_es_mayor_edad.sql
-    02_antiguedad_usuario.sql
-    03_formato_correo.sql
-  procedimientos/
-    01_get_user_stats.sql
-    02_count_by_surname.sql
-    03_check_email_status.sql
-  todo_en_uno.sql                Todo lo anterior en un solo archivo (generado)
-docker-compose.yml               Plan B si el PC no tiene MySQL
-generar_todo_en_uno.sh           Regenera todo_en_uno.sql (Linux / Git Bash)
+  parcial_veterinaria.sql   Script completo, secciones 1 a 9
+docker-compose.yml          Plan B si el PC no tiene MySQL
 ```
 
-Cada script se puede ejecutar por separado (después del `00`). Contiene el enunciado, el `DROP ... IF EXISTS`, la rutina y las pruebas, con el resultado esperado en comentarios.
+## Cómo ejecutarlo
 
-## Montarlo en el PC de la universidad (Windows)
+> ⚠ El script **borra y recrea** la BD `veterinaria_huellas` y los usuarios `admin_huellas` y `recepcion_huellas`. Se puede ejecutar varias veces. Hay que hacerlo con un usuario que pueda crear usuarios y roles (por ejemplo `root`).
 
-> ⚠ `00_esquema_y_datos.sql` **borra y recrea** la tabla `users` de `university`. Si el PC ya tiene esa BD con datos de otra persona, revísalo antes con `SHOW DATABASES;`.
-
-### 1. Descargar el proyecto
-- **Con git:** `git clone <URL-del-repo>`
-- **Sin git:** en GitHub, botón **Code → Download ZIP** y descomprimir.
-
-### 2a. Con MySQL Workbench (opción principal)
-1. Abrir Workbench y conectarse a la instancia local (normalmente `root@localhost:3306`).
-2. **File → Open SQL Script…** → `sql/todo_en_uno.sql`.
+### Con MySQL Workbench (opción principal)
+1. Conectarse a la instancia local (`root@localhost:3306`).
+2. **File → Open SQL Script…** → `sql/parcial_veterinaria.sql`.
 3. Ejecutar todo con el rayo ⚡ (**Ctrl+Shift+Enter**). Cada `SELECT` abre una pestaña de resultados.
-4. Para exponer ejercicio por ejercicio, abrir el script individual y ejecutar cada sentencia con **Ctrl+Enter**.
+4. Para exponer por secciones: seleccionar el bloque y ejecutar con **Ctrl+Shift+Enter**, o una sentencia con **Ctrl+Enter**.
 
-Workbench entiende `DELIMITER $$` sin configurar nada.
-
-### 2b. Con XAMPP / phpMyAdmin
-Pestaña **SQL** → pegar el contenido del script → **Continuar**. Si se queja del delimitador, escribir `$$` en el campo *Delimitador* y quitar las líneas `DELIMITER`.
-
-### 2c. Con Docker Desktop (plan B)
+### Con Docker Desktop (plan B)
 ```powershell
 docker compose up -d
-docker compose exec mysql mysql -uroot -proot university
+docker compose exec mysql mysql -uroot -proot veterinaria_huellas
 ```
-Al primer arranque carga `todo_en_uno.sql` automáticamente. Desde Workbench también se puede conectar a `127.0.0.1:3307` con usuario `root` y contraseña `root` (credenciales de demostración, solo locales).
-Para reiniciar desde cero: `docker compose down` y luego `docker compose up -d`. El contenedor no guarda volumen propio, así que se recrea limpio.
+Al primer arranque carga el script. Desde Workbench también se puede conectar a `127.0.0.1:3307` con usuario `root` y contraseña `root`.
+Para empezar de cero: `docker compose down` y luego `docker compose up -d`. El contenedor no tiene volumen, así que se recrea limpio.
+
+Los usuarios del parcial se crean como `@'localhost'`. En Docker solo pueden entrar desde dentro del contenedor:
+`docker compose exec mysql mysql -urecepcion_huellas -p veterinaria_huellas`.
+
+### XAMPP / MariaDB: no recomendado
+MariaDB maneja los roles distinto (`SET DEFAULT ROLE ALL TO …` no existe ahí), así que la sección 4 falla. Usa MySQL o el plan B.
 
 ## Guion de exposición
 
-### Modelo de datos
-El enunciado no trae el `CREATE TABLE`, así que se reconstruyó con las columnas que usan los apuntes: `user_id, name, surname, age, init_date, email, company_id`. Los datos se diseñaron para mostrar todos los casos de cada ejercicio: Marcela Hernandez es el ID 1, hay 3 'Fernandez', alguien con `age` NULL, un menor, alguien con exactamente 18 años y usuarios sin email, sin apellido o sin fecha de inicio.
+| # | Requerimiento | Solución | Qué destacar |
+|---|---|---|---|
+| 1 | Modelo y normalización | [`docs/MODELO.md`](docs/MODELO.md) | `consultas_medicas` resuelve la relación N:M mascotas↔veterinarios. `especies` es tabla propia (3FN). Se guarda `fecha_nacimiento` y no la edad, porque la edad es un dato derivado. |
+| 2 | DDL, ≥4 tablas | 5 tablas + `historial_diagnosticos` | FK con nombre, `UNIQUE` en las claves candidatas, `CHECK` en `sexo` y `costo`. El historial no tiene FK a propósito. |
+| 3 | ≥5 registros por tabla | 5 / 5 / 6 / 5 / 8 filas | Datos pensados para cada caso: un cachorro, adultos, seniors, una mascota sin fecha, un veterinario sin consultas. El historial lo llena el trigger con 5 cambios. |
+| 4 | Roles y usuarios | `rol_admin` (SELECT, INSERT, UPDATE, DELETE), `rol_empleado` (SELECT, INSERT) | Sin `SET DEFAULT ROLE ALL` el rol queda asignado pero **inactivo** al iniciar sesión. |
+| 5 | Trigger | `tg_respaldo_diagnostico`, `AFTER UPDATE` | `NOT (OLD.diagnostico <=> NEW.diagnostico)`: con `<>`, un cambio desde NULL no se auditaría. `USER()` y no `CURRENT_USER()`, que en un trigger devuelve el creador. |
+| 6 | Función con `CASE` | `fn_etapa_vida(p_edad)` | `DETERMINISTIC NO SQL`. El NULL se evalúa primero y devuelve `Desconocido`. |
+| 7 | Procedimiento con JOIN | `sp_estadisticas_veterinario(IN id, OUT nombre, OUT consultas, OUT mascotas, OUT lista)` | Con `LEFT JOIN`, un veterinario sin consultas da 0. `COUNT(DISTINCT)` cuenta mascotas distintas. Si el ID no existe, el nombre queda NULL. |
+| 8 | Reporte | Consultas e ingresos por veterinario | `COUNT`, `SUM`, `GROUP BY`, `ORDER BY` y `COALESCE` para quien no tiene consultas. |
+| 9 | Vista | `vw_historia_clinica` | Une las 5 tablas y reutiliza la función del punto 6. |
 
-### Funciones
-| Función | Idea clave | Características |
-|---|---|---|
-| `es_mayor_edad(p_age)` | `IF / ELSEIF / ELSE`. El NULL se revisa **primero**, porque `NULL >= 18` no es verdadero ni falso y caería en `'NO'`. | `DETERMINISTIC NO SQL` |
-| `antiguedad_usuario(p_init_date)` | `TIMESTAMPDIFF(YEAR, fecha, NOW())` cuenta **años completos**. | `NOT DETERMINISTIC NO SQL` |
-| `formato_correo(p_name, p_surname)` | `LOWER(CONCAT(CONCAT_WS('.', nombre, apellido), '@universidad.edu.co'))`. `CONCAT_WS` salta los NULL; con `CONCAT` un apellido NULL daría NULL. | `DETERMINISTIC NO SQL` |
+### Resultados esperados (clave para la demo)
+- `CALL sp_estadisticas_veterinario(1, …)` → Sofía Martínez, **5** consultas, **4** mascotas (Max fue 2 veces).
+- `CALL sp_estadisticas_veterinario(5, …)` → Mariana López, 0, 0, NULL.
+- Historial: 5 filas. El `UPDATE` que solo cambia `costo` **no** genera fila.
+- Como `recepcion_huellas`, `INSERT` funciona; `UPDATE` y `DELETE` dan `ERROR 1142`.
 
-**¿Por qué no `READS SQL DATA` en todas, como dice el tip del taller?** Esa característica le dice a MySQL que la función *lee tablas*, y ninguna de estas lo hace: solo trabajan con sus parámetros. Lo correcto es `NO SQL`. Con el binary log activo (opción por defecto en MySQL 8), basta con declarar `DETERMINISTIC`, `NO SQL` o `READS SQL DATA` para evitar el **error 1418**. Por eso `antiguedad_usuario` puede ser honestamente `NOT DETERMINISTIC`: depende de `NOW()` y la misma fecha da otro resultado el año siguiente.
-
-### Procedimientos
-| Procedimiento | Prueba | Resultado |
-|---|---|---|
-| `get_user_stats(IN p_user_id, OUT p_age, OUT p_email)` | `CALL get_user_stats(1, @edad, @correo);` | `25`, `marcela.hernandez@gmail.com` |
-| `count_by_surname(IN p_surname, OUT p_total)` | `CALL count_by_surname('Fernandez', @total);` | `3` |
-| `check_email_status(IN p_user_id, OUT p_status)` | `CALL check_email_status(3, @estado);` | `Pendiente` |
-
-Los tres usan `SELECT ... INTO`, que exige que la consulta devuelva **como máximo una fila**:
-- Filtrar por `user_id` (PRIMARY KEY) lo garantiza.
-- `COUNT(*)` siempre devuelve exactamente una fila, aunque sea `0`.
-- Si el ID no existe, las variables `OUT` quedan en `NULL` y MySQL emite el warning 1329 (*No data*). El script de `get_user_stats` lo demuestra con el ID 999.
-
-### Erratas del enunciado
-- `REES SQL DATA` → debe ser `READS SQL DATA`.
-- El tip "usar `DETERMINISTIC` y `READS SQL DATA`" no aplica a estas funciones (ver arriba).
-
-## Mantenimiento
-Si modificas un script individual, regenera el archivo combinado:
-```bash
-./generar_todo_en_uno.sh
+### Probar los roles en Workbench
+Crear una conexión nueva con usuario `recepcion_huellas` y contraseña `Recep.Huellas#2026` (en el host `localhost`), y ejecutar:
+```sql
+SELECT CURRENT_ROLE();                                  -- `rol_empleado`@`%`
+INSERT INTO veterinaria_huellas.especies (nombre) VALUES ('Tortuga');  -- OK
+DELETE FROM veterinaria_huellas.especies WHERE nombre = 'Tortuga';     -- ERROR 1142
 ```
+Las contraseñas del script son **de demostración**. Cumplen la política `validate_password`, pero al estar en el repositorio ya no son secretas.

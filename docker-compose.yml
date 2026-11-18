@@ -1,15 +1,15 @@
 # Plan B: si el PC no tiene MySQL instalado pero sí Docker Desktop.
 #   docker compose up -d
-#   docker compose exec mysql mysql -uroot -proot university
-# Al primer arranque carga sql/todo_en_uno.sql automáticamente.
+#   docker compose exec mysql mysql -uroot -proot veterinaria_huellas
+# Al primer arranque carga sql/parcial_veterinaria.sql automáticamente.
 # Contraseña de demostración: solo para uso local en clase.
 services:
   mysql:
     image: mysql:8.4
-    container_name: taller_university
+    container_name: parcial_veterinaria
     environment:
       MYSQL_ROOT_PASSWORD: root
     ports:
       - "3307:3306"   # 3307 en el PC para no chocar con un MySQL ya instalado
     volumes:
-      - ./sql/todo_en_uno.sql:/docker-entrypoint-initdb.d/todo_en_uno.sql:ro
+      - ./sql/parcial_veterinaria.sql:/docker-entrypoint-initdb.d/parcial_veterinaria.sql:ro

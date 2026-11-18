@@ -38,8 +38,8 @@ SHOW FULL TABLES WHERE Table_type = 'VIEW';    -- solo vistas
 
 -- A3. "Describe la estructura de una tabla"
 DESCRIBE mascotas;                 -- columnas, tipos, NULL, claves (PRI, MUL, UNI)
-SHOW COLUMNS FROM consultas_medicas;
-SHOW CREATE TABLE consultas_medicas;   -- el DDL completo con FK y CHECK
+SHOW COLUMNS FROM detalle_consultas;   -- PK compuesta: las dos columnas dicen PRI
+SHOW CREATE TABLE consultas_medicas;   -- el DDL completo con FK
 
 -- A4. "¿Qué llaves foráneas tiene la BD?"
 SELECT TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME,
@@ -48,17 +48,23 @@ FROM information_schema.KEY_COLUMN_USAGE
 WHERE TABLE_SCHEMA = 'veterinaria_huellas'
   AND REFERENCED_TABLE_NAME IS NOT NULL
 ORDER BY TABLE_NAME;
--- Esperado: 4 FK (consultas → mascotas y veterinarios; mascotas → especies y propietarios)
+-- Esperado: 8 FK (consultas → mascotas, veterinarios · detalle → consultas,
+-- tratamientos · mascotas → razas, propietarios · razas → especies ·
+-- veterinarios → especialidades)
 
 -- A5. "¿Cuántos registros tiene cada tabla?"
 -- TABLE_ROWS de information_schema es aproximado en InnoDB; el exacto es COUNT(*).
 SELECT 'propietarios' AS tabla, COUNT(*) AS filas FROM propietarios
 UNION ALL SELECT 'especies',               COUNT(*) FROM especies
-UNION ALL SELECT 'mascotas',               COUNT(*) FROM mascotas
+UNION ALL SELECT 'especialidades',         COUNT(*) FROM especialidades
+UNION ALL SELECT 'tratamientos',           COUNT(*) FROM tratamientos
+UNION ALL SELECT 'razas',                  COUNT(*) FROM razas
 UNION ALL SELECT 'veterinarios',           COUNT(*) FROM veterinarios
+UNION ALL SELECT 'mascotas',               COUNT(*) FROM mascotas
 UNION ALL SELECT 'consultas_medicas',      COUNT(*) FROM consultas_medicas
+UNION ALL SELECT 'detalle_consultas',      COUNT(*) FROM detalle_consultas
 UNION ALL SELECT 'historial_diagnosticos', COUNT(*) FROM historial_diagnosticos;
--- Esperado: 5, 5, 6, 5, 8, 5
+-- Esperado: 5, 5, 5, 8, 6, 5, 6, 8, 16, 5
 
 -- A6. "Muestra las funciones, procedimientos, triggers y vistas"
 SHOW FUNCTION STATUS  WHERE Db = 'veterinaria_huellas';
@@ -110,7 +116,7 @@ DROP USER IF EXISTS 'practica_huellas'@'localhost';
 CREATE USER 'practica_huellas'@'localhost' IDENTIFIED BY 'Pract1ca.Huellas#26';
 
 GRANT SELECT ON veterinaria_huellas.vw_historia_clinica TO 'practica_huellas'@'localhost';  -- solo la vista
-GRANT SELECT (nombre, apellido, especialidad)
+GRANT SELECT (nombre, apellido, telefono)
       ON veterinaria_huellas.veterinarios TO 'practica_huellas'@'localhost';                -- solo 3 columnas
 GRANT EXECUTE ON PROCEDURE veterinaria_huellas.sp_estadisticas_veterinario
       TO 'practica_huellas'@'localhost';                                                     -- una rutina
@@ -153,10 +159,10 @@ DROP USER 'practica_huellas'@'localhost';
 -- =====================================================================
 
 -- C1. "Lista todas las mascotas ordenadas por nombre"
-SELECT mascota_id, nombre, raza, sexo, fecha_nacimiento FROM mascotas ORDER BY nombre;
+SELECT mascota_id, nombre, sexo, fecha_nacimiento FROM mascotas ORDER BY nombre;
 
--- C2. "Solo los perros" (filtrando por la FK)
-SELECT nombre, raza FROM mascotas WHERE especie_id = 1;
+-- C2. "Solo los machos"
+SELECT nombre FROM mascotas WHERE sexo = 'M';
 -- Esperado: Max, Rocky, Toby
 
 -- C3. "Mascotas cuyo nombre empiece por L"  (% = cualquier texto, _ = un carácter)
@@ -171,10 +177,9 @@ FROM consultas_medicas
 WHERE fecha_consulta >= '2026-10-01' AND fecha_consulta < '2026-11-01';
 -- Esperado: consultas 4, 5, 6
 
--- C5. "Veterinarios de cirugía o dermatología"
-SELECT nombre, apellido, especialidad
-FROM veterinarios
-WHERE especialidad IN ('Cirugía', 'Dermatología');
+-- C5. "Tratamientos entre 40.000 y 60.000"  (BETWEEN incluye los extremos)
+SELECT nombre, precio FROM tratamientos WHERE precio BETWEEN 40000 AND 60000 ORDER BY precio;
+-- Esperado: Tratamiento dermatológico, Vacuna antirrábica, Consulta general, Examen de sangre
 
 -- C6. "¿Quién no tiene email? ¿Qué mascota no tiene fecha de nacimiento?"
 SELECT nombre, apellido FROM propietarios WHERE email IS NULL;           -- Julián Moreno
@@ -184,9 +189,9 @@ SELECT nombre FROM mascotas WHERE fecha_nacimiento IS NULL;              -- Toby
 SELECT DISTINCT veterinario_id FROM consultas_medicas;                   -- 1, 2, 3, 4
 SELECT COUNT(DISTINCT veterinario_id) AS veterinarios_activos FROM consultas_medicas;  -- 4
 
--- C8. "Las 3 consultas más caras"
-SELECT consulta_id, motivo, costo FROM consultas_medicas ORDER BY costo DESC LIMIT 3;
--- Esperado: 3 (150000), 6 (120000), 5 (90000)
+-- C8. "Los 3 tratamientos más caros"
+SELECT nombre, precio FROM tratamientos ORDER BY precio DESC LIMIT 3;
+-- Esperado: Radiografía 80000, Limpieza dental 70000, Examen de sangre 60000
 
 -- C9. "Directorio de propietarios con nombre completo"  (alias, CONCAT, COALESCE)
 SELECT CONCAT(nombre, ' ', apellido)  AS propietario,
@@ -195,14 +200,16 @@ SELECT CONCAT(nombre, ' ', apellido)  AS propietario,
 FROM propietarios
 ORDER BY propietario;
 
--- C10. "Clasifica las consultas por costo" (CASE dentro de un SELECT, sin función)
-SELECT consulta_id, costo,
+-- C10. "Clasifica los tratamientos por precio" (CASE dentro de un SELECT, sin función)
+SELECT nombre, precio,
        CASE
-           WHEN costo < 60000  THEN 'Económica'
-           WHEN costo < 100000 THEN 'Estándar'
-           ELSE                     'Especializada'
+           WHEN precio < 40000 THEN 'Económico'
+           WHEN precio < 70000 THEN 'Estándar'
+           ELSE                     'Especializado'
        END AS categoria
-FROM consultas_medicas;
+FROM tratamientos
+ORDER BY precio;
+-- Esperado: Desparasitación y Curación Económico · Radiografía y Limpieza Especializado
 
 -- C11. Funciones de fecha
 SELECT nombre,
@@ -224,6 +231,8 @@ FROM consultas_medicas;
 -- * Anti-join: LEFT JOIN + WHERE derecha.pk IS NULL = "los que NO tienen".
 -- * Una condición sobre la tabla derecha puesta en WHERE convierte el
 --   LEFT JOIN en INNER; para conservar las filas sin pareja va en el ON.
+-- * Para llegar de mascota a especie hay que pasar por razas: los JOIN
+--   siguen el camino de las FK del modelo.
 -- =====================================================================
 
 -- D1. "Cada mascota con su dueño" (INNER, 2 tablas)
@@ -232,53 +241,71 @@ FROM mascotas m
 INNER JOIN propietarios p ON p.propietario_id = m.propietario_id;
 -- Esperado: 6 filas (Laura tiene a Max y a Luna)
 
--- D2. "Mascota, especie y dueño" (INNER, 3 tablas)
-SELECT m.nombre AS mascota, e.nombre AS especie, m.raza,
+-- D2. "Mascota, raza, especie y dueño" (INNER, 4 tablas)
+SELECT m.nombre AS mascota, r.nombre AS raza, e.nombre AS especie,
        CONCAT(p.nombre, ' ', p.apellido) AS propietario
 FROM mascotas m
-INNER JOIN especies     e ON e.especie_id     = m.especie_id
+INNER JOIN razas        r ON r.raza_id        = m.raza_id
+INNER JOIN especies     e ON e.especie_id     = r.especie_id
 INNER JOIN propietarios p ON p.propietario_id = m.propietario_id
 ORDER BY especie, mascota;
 
--- D3. "Todas las consultas con mascota, veterinario y dueño" (4 tablas)
+-- D3. "Todas las consultas con mascota, veterinario y su especialidad"
 SELECT c.consulta_id, c.fecha_consulta, m.nombre AS mascota,
        CONCAT(v.nombre, ' ', v.apellido) AS veterinario,
-       CONCAT(p.nombre, ' ', p.apellido) AS propietario,
-       c.diagnostico, c.costo
+       es.nombre AS especialidad, c.diagnostico
 FROM consultas_medicas c
-INNER JOIN mascotas     m ON m.mascota_id     = c.mascota_id
-INNER JOIN veterinarios v ON v.veterinario_id = c.veterinario_id
-INNER JOIN propietarios p ON p.propietario_id = m.propietario_id
+INNER JOIN mascotas       m  ON m.mascota_id       = c.mascota_id
+INNER JOIN veterinarios   v  ON v.veterinario_id   = c.veterinario_id
+INNER JOIN especialidades es ON es.especialidad_id = v.especialidad_id
 ORDER BY c.fecha_consulta;
--- Esperado: 8 filas (es lo mismo que hace la vista vw_historia_clinica)
+-- Esperado: 8 filas
 
--- D4. "Todos los veterinarios, tengan o no consultas" (LEFT)
+-- D4. "El detalle de una consulta: qué tratamientos se aplicaron" (la N:M)
+SELECT c.consulta_id, m.nombre AS mascota, t.nombre AS tratamiento,
+       t.precio AS precio_actual, d.precio_aplicado
+FROM consultas_medicas c
+INNER JOIN mascotas          m ON m.mascota_id     = c.mascota_id
+INNER JOIN detalle_consultas d ON d.consulta_id    = c.consulta_id
+INNER JOIN tratamientos      t ON t.tratamiento_id = d.tratamiento_id
+WHERE c.consulta_id = 1;
+-- Esperado: Consulta general (actual 50000, aplicado 45000) y Vacuna antirrábica 45000
+
+-- D5. "Todos los veterinarios, tengan o no consultas" (LEFT)
 SELECT CONCAT(v.nombre, ' ', v.apellido) AS veterinario, c.consulta_id, c.fecha_consulta
 FROM veterinarios v
 LEFT JOIN consultas_medicas c ON c.veterinario_id = v.veterinario_id
 ORDER BY v.veterinario_id;
 -- Esperado: 9 filas; Mariana López aparece con consulta_id NULL
 
--- D5. "¿Qué veterinarios NO han atendido?" (anti-join)
+-- D6. "¿Qué veterinarios NO han atendido?" (anti-join)
 SELECT v.nombre, v.apellido
 FROM veterinarios v
 LEFT JOIN consultas_medicas c ON c.veterinario_id = v.veterinario_id
 WHERE c.consulta_id IS NULL;
 -- Esperado: Mariana López
 
--- D6. "¿Qué especies no tienen mascotas registradas?"
+-- D7. "¿Qué tratamientos nunca se han aplicado?"
+SELECT t.nombre
+FROM tratamientos t
+LEFT JOIN detalle_consultas d ON d.tratamiento_id = t.tratamiento_id
+WHERE d.consulta_id IS NULL;
+-- Esperado: Limpieza dental
+
+-- D8. "¿Qué especies no tienen mascotas registradas?" (LEFT encadenado)
 SELECT e.nombre AS especie
 FROM especies e
-LEFT JOIN mascotas m ON m.especie_id = e.especie_id
+LEFT JOIN razas    r ON r.especie_id = e.especie_id
+LEFT JOIN mascotas m ON m.raza_id    = r.raza_id
 WHERE m.mascota_id IS NULL;
 -- Esperado: Hámster
 
--- D7. RIGHT JOIN: el D4 escrito al revés (mismo resultado)
+-- D9. RIGHT JOIN: el D5 escrito al revés (mismo resultado)
 SELECT CONCAT(v.nombre, ' ', v.apellido) AS veterinario, c.consulta_id
 FROM consultas_medicas c
 RIGHT JOIN veterinarios v ON v.veterinario_id = c.veterinario_id;
 
--- D8. "Mascotas que comparten dueño" (self join: la tabla consigo misma)
+-- D10. "Mascotas que comparten dueño" (self join: la tabla consigo misma)
 SELECT m1.nombre AS mascota_1, m2.nombre AS mascota_2, m1.propietario_id
 FROM mascotas m1
 INNER JOIN mascotas m2
@@ -286,11 +313,12 @@ INNER JOIN mascotas m2
        AND m2.mascota_id > m1.mascota_id;     -- evita (Max, Max) y el par repetido
 -- Esperado: Max – Luna
 
--- D9. "Consultas de los perros" (JOIN + filtro)
+-- D11. "Consultas de los perros" (JOIN pasando por razas + filtro)
 SELECT m.nombre, c.fecha_consulta, c.motivo
 FROM consultas_medicas c
 INNER JOIN mascotas m ON m.mascota_id = c.mascota_id
-INNER JOIN especies e ON e.especie_id = m.especie_id
+INNER JOIN razas    r ON r.raza_id    = m.raza_id
+INNER JOIN especies e ON e.especie_id = r.especie_id
 WHERE e.nombre = 'Perro'
 ORDER BY c.fecha_consulta;
 -- Esperado: 5 consultas (Max ×2, Rocky ×2, Toby)
@@ -299,12 +327,16 @@ ORDER BY c.fecha_consulta;
 -- =====================================================================
 -- E. FUNCIONES DE AGREGACIÓN, GROUP BY Y HAVING
 -- CONCEPTO:
--- * COUNT(*) cuenta filas; COUNT(columna) ignora los NULL.
+-- * COUNT(*) cuenta filas; COUNT(columna) ignora los NULL;
+--   COUNT(DISTINCT col) cuenta valores distintos.
 -- * GROUP BY arma un grupo por cada valor distinto; las columnas del
 --   SELECT que no estén agregadas deben ir en el GROUP BY
 --   (ONLY_FULL_GROUP_BY, activo por defecto en MySQL 8).
 -- * WHERE filtra filas ANTES de agrupar; HAVING filtra grupos DESPUÉS
 --   (por eso solo HAVING puede usar COUNT, SUM…).
+-- * Trampa típica: al unir consultas con su detalle, cada consulta se
+--   repite una vez por tratamiento. Para contar consultas hay que usar
+--   COUNT(DISTINCT c.consulta_id); SUM(precio_aplicado) sí queda bien.
 -- =====================================================================
 
 -- E1. COUNT(*) vs COUNT(columna)
@@ -312,23 +344,35 @@ SELECT COUNT(*) AS propietarios, COUNT(email) AS con_email FROM propietarios;
 -- Esperado: 5 y 4
 
 -- E2. "Totales de facturación"
-SELECT COUNT(*) AS consultas, SUM(costo) AS total, AVG(costo) AS promedio,
-       MIN(costo) AS minimo, MAX(costo) AS maximo
-FROM consultas_medicas;
--- Esperado: 8 · 685000 · 85625 · 50000 · 150000
+SELECT COUNT(DISTINCT consulta_id) AS consultas,
+       COUNT(*)                    AS tratamientos_aplicados,
+       SUM(precio_aplicado)        AS total,
+       MIN(precio_aplicado)        AS cobro_minimo,
+       MAX(precio_aplicado)        AS cobro_maximo
+FROM detalle_consultas;
+-- Esperado: 8 · 16 · 785000 · 25000 · 80000
 
--- E3. "Consultas e ingresos por especie" (incluye especies sin mascotas)
+-- E3. "La trampa del JOIN": COUNT(*) vs COUNT(DISTINCT) sobre el mismo JOIN
+SELECT COUNT(*)                      AS filas_del_join,
+       COUNT(DISTINCT c.consulta_id) AS consultas_reales
+FROM consultas_medicas c
+INNER JOIN detalle_consultas d ON d.consulta_id = c.consulta_id;
+-- Esperado: 16 y 8
+
+-- E4. "Consultas e ingresos por especie" (incluye especies sin mascotas)
 SELECT e.nombre AS especie,
-       COUNT(c.consulta_id)       AS consultas,
-       COALESCE(SUM(c.costo), 0)  AS ingresos
+       COUNT(DISTINCT c.consulta_id)       AS consultas,
+       COALESCE(SUM(d.precio_aplicado), 0) AS ingresos
 FROM especies e
-LEFT JOIN mascotas m          ON m.especie_id = e.especie_id
-LEFT JOIN consultas_medicas c ON c.mascota_id = m.mascota_id
+LEFT JOIN razas             r ON r.especie_id  = e.especie_id
+LEFT JOIN mascotas          m ON m.raza_id     = r.raza_id
+LEFT JOIN consultas_medicas c ON c.mascota_id  = m.mascota_id
+LEFT JOIN detalle_consultas d ON d.consulta_id = c.consulta_id
 GROUP BY e.especie_id, e.nombre
-ORDER BY ingresos DESC;
--- Esperado: Perro 5/440000 · Conejo 1/90000 · Gato 1/85000 · Ave 1/70000 · Hámster 0/0
+ORDER BY ingresos DESC, especie;
+-- Esperado: Perro 5/475000 · Ave 1/110000 · Gato 1/110000 · Conejo 1/90000 · Hámster 0/0
 
--- E4. "¿Qué mascotas han venido más de una vez?" (HAVING)
+-- E5. "¿Qué mascotas han venido más de una vez?" (HAVING)
 SELECT m.nombre, COUNT(*) AS visitas
 FROM consultas_medicas c
 INNER JOIN mascotas m ON m.mascota_id = c.mascota_id
@@ -336,7 +380,7 @@ GROUP BY m.mascota_id, m.nombre
 HAVING COUNT(*) > 1;
 -- Esperado: Max 2, Rocky 2
 
--- E5. "Cuántas mascotas tiene cada propietario y cuáles son"
+-- E6. "Cuántas mascotas tiene cada propietario y cuáles son"
 SELECT CONCAT(p.nombre, ' ', p.apellido) AS propietario,
        COUNT(m.mascota_id)                                     AS mascotas,
        GROUP_CONCAT(m.nombre ORDER BY m.nombre SEPARATOR ', ') AS nombres
@@ -346,29 +390,44 @@ GROUP BY p.propietario_id, p.nombre, p.apellido
 ORDER BY mascotas DESC;
 -- Esperado: Laura Gómez 2 (Luna, Max); el resto 1
 
--- E6. "Ingresos por mes"
-SELECT DATE_FORMAT(fecha_consulta, '%Y-%m') AS mes,
-       COUNT(*) AS consultas, SUM(costo) AS ingresos
-FROM consultas_medicas
+-- E7. "Ingresos por mes"
+SELECT DATE_FORMAT(c.fecha_consulta, '%Y-%m') AS mes,
+       COUNT(DISTINCT c.consulta_id)          AS consultas,
+       SUM(d.precio_aplicado)                 AS ingresos
+FROM consultas_medicas c
+INNER JOIN detalle_consultas d ON d.consulta_id = c.consulta_id
 GROUP BY mes
 ORDER BY mes;
--- Esperado: 2026-09 3/300000 · 2026-10 3/280000 · 2026-11 2/105000
+-- Esperado: 2026-09 3/330000 · 2026-10 3/285000 · 2026-11 2/170000
 
--- E7. "Lo mismo con una fila de total general" (WITH ROLLUP)
-SELECT DATE_FORMAT(fecha_consulta, '%Y-%m') AS mes, SUM(costo) AS ingresos
-FROM consultas_medicas
-GROUP BY mes WITH ROLLUP;
--- Esperado: la última fila tiene mes NULL e ingresos 685000
-
--- E8. "Ingresos por veterinario solo si superan 80.000" (WHERE + HAVING juntos)
-SELECT CONCAT(v.nombre, ' ', v.apellido) AS veterinario, SUM(c.costo) AS ingresos
+-- E8. "Lo mismo con una fila de total general" (WITH ROLLUP)
+SELECT DATE_FORMAT(c.fecha_consulta, '%Y-%m') AS mes, SUM(d.precio_aplicado) AS ingresos
 FROM consultas_medicas c
-INNER JOIN veterinarios v ON v.veterinario_id = c.veterinario_id
+INNER JOIN detalle_consultas d ON d.consulta_id = c.consulta_id
+GROUP BY mes WITH ROLLUP;
+-- Esperado: la última fila tiene mes NULL e ingresos 785000
+
+-- E9. "Ingresos por veterinario solo si superan 100.000" (WHERE + HAVING juntos)
+SELECT CONCAT(v.nombre, ' ', v.apellido) AS veterinario, SUM(d.precio_aplicado) AS ingresos
+FROM consultas_medicas c
+INNER JOIN veterinarios      v ON v.veterinario_id = c.veterinario_id
+INNER JOIN detalle_consultas d ON d.consulta_id    = c.consulta_id
 WHERE c.fecha_consulta >= '2026-09-01'     -- filtra filas
 GROUP BY v.veterinario_id, v.nombre, v.apellido
-HAVING SUM(c.costo) > 80000                -- filtra grupos
+HAVING SUM(d.precio_aplicado) > 100000     -- filtra grupos
 ORDER BY ingresos DESC;
--- Esperado: Sofía Martínez 375000, Carlos Pérez 150000, Natalia Vargas 90000
+-- Esperado: Sofía Martínez 455000, Carlos Pérez 130000, Felipe Castro 110000
+
+-- E10. "Ingresos por especialidad"
+SELECT es.nombre AS especialidad, COALESCE(SUM(d.precio_aplicado), 0) AS ingresos
+FROM especialidades es
+LEFT JOIN veterinarios      v ON v.especialidad_id = es.especialidad_id
+LEFT JOIN consultas_medicas c ON c.veterinario_id  = v.veterinario_id
+LEFT JOIN detalle_consultas d ON d.consulta_id     = c.consulta_id
+GROUP BY es.especialidad_id, es.nombre
+ORDER BY ingresos DESC;
+-- Esperado: Medicina general 455000 · Cirugía 130000 · Animales exóticos 110000 ·
+--           Dermatología 90000 · Odontología 0
 
 
 -- =====================================================================
@@ -384,38 +443,48 @@ ORDER BY ingresos DESC;
 -- duplicados; UNION ALL no, y es más rápido).
 -- =====================================================================
 
--- F1. "Consultas más caras que el promedio" (escalar)
-SELECT consulta_id, motivo, costo
-FROM consultas_medicas
-WHERE costo > (SELECT AVG(costo) FROM consultas_medicas);
--- Esperado: 3, 5, 6
+-- F1. "Tratamientos más caros que el promedio" (escalar)
+SELECT nombre, precio
+FROM tratamientos
+WHERE precio > (SELECT AVG(precio) FROM tratamientos);
+-- Esperado: Radiografía, Examen de sangre, Limpieza dental (promedio 50625)
 
--- F2. "Propietarios que tienen perros" (IN)
+-- F2. "Consultas cuyo total supera el promedio" (tabla derivada + escalar)
+SELECT t.consulta_id, t.total
+FROM (SELECT consulta_id, SUM(precio_aplicado) AS total
+      FROM detalle_consultas GROUP BY consulta_id) AS t
+WHERE t.total > (SELECT SUM(precio_aplicado) / COUNT(DISTINCT consulta_id) FROM detalle_consultas)
+ORDER BY t.total DESC;
+-- Esperado: 3 (130000), 8 (120000), 2 y 4 (110000) — promedio 98125
+
+-- F3. "Propietarios que tienen perros" (IN anidado)
 SELECT nombre, apellido
 FROM propietarios
 WHERE propietario_id IN (
-    SELECT propietario_id FROM mascotas
-    WHERE especie_id = (SELECT especie_id FROM especies WHERE nombre = 'Perro')
+    SELECT m.propietario_id
+    FROM mascotas m
+    WHERE m.raza_id IN (SELECT raza_id FROM razas
+                        WHERE especie_id = (SELECT especie_id FROM especies WHERE nombre = 'Perro'))
 );
 -- Esperado: Laura, Andrés, Valentina
 
--- F3. "Veterinarios sin consultas" (NOT EXISTS; mismo resultado que D5)
+-- F4. "Veterinarios sin consultas" (NOT EXISTS; mismo resultado que D6)
 SELECT v.nombre, v.apellido
 FROM veterinarios v
 WHERE NOT EXISTS (SELECT 1 FROM consultas_medicas c WHERE c.veterinario_id = v.veterinario_id);
 -- Esperado: Mariana López
 
--- F4. "Promedio de consultas por veterinario activo" (tabla derivada)
+-- F5. "Promedio de consultas por veterinario activo" (tabla derivada)
 SELECT AVG(t.total) AS promedio_consultas
 FROM (SELECT veterinario_id, COUNT(*) AS total
       FROM consultas_medicas
       GROUP BY veterinario_id) AS t;
 -- Esperado: 2.0000  ((5+1+1+1) / 4)
 
--- F5. "Directorio de contactos de la clínica" (UNION)
-SELECT CONCAT(nombre, ' ', apellido) AS persona, 'Propietario' AS tipo FROM propietarios
+-- F6. "Directorio de contactos de la clínica" (UNION)
+SELECT CONCAT(nombre, ' ', apellido) AS persona, telefono, 'Propietario' AS tipo FROM propietarios
 UNION ALL
-SELECT CONCAT(nombre, ' ', apellido), 'Veterinario' FROM veterinarios
+SELECT CONCAT(nombre, ' ', apellido), telefono, 'Veterinario' FROM veterinarios
 ORDER BY tipo, persona;
 -- Esperado: 10 filas
 
@@ -426,6 +495,8 @@ ORDER BY tipo, persona;
 -- * INSERT agrega, UPDATE modifica, DELETE borra filas. UPDATE y DELETE
 --   sin WHERE afectan TODA la tabla (Workbench lo bloquea con el modo
 --   "safe updates", error 1175).
+-- * Orden por las FK: se inserta del padre al hijo y se borra del hijo
+--   al padre.
 -- * Transacción: grupo de cambios que se guarda todo (COMMIT) o nada
 --   (ROLLBACK). Garantiza ACID: Atomicidad, Consistencia, Aislamiento y
 --   Durabilidad. Lo que hace un trigger forma parte de la misma
@@ -439,17 +510,28 @@ ORDER BY tipo, persona;
 START TRANSACTION;
 
 -- G1. "Registra una mascota nueva y su primera consulta"
-INSERT INTO mascotas (nombre, especie_id, raza, sexo, fecha_nacimiento, propietario_id)
-VALUES ('Copito', 5, 'Sirio', 'M', DATE_SUB(CURDATE(), INTERVAL 3 MONTH), 3);
-SET @nueva_mascota = LAST_INSERT_ID();       -- ID que acaba de generar AUTO_INCREMENT
+-- Hámster no tiene razas: primero el padre (raza), luego la mascota.
+INSERT INTO razas (nombre, especie_id) VALUES ('Sirio', 5);
+SET @nueva_raza = LAST_INSERT_ID();       -- ID que acaba de generar AUTO_INCREMENT
 
-INSERT INTO consultas_medicas (mascota_id, veterinario_id, fecha_consulta, motivo, diagnostico, costo)
-VALUES (@nueva_mascota, 4, NOW(), 'Revisión inicial', NULL, 45000);
+INSERT INTO mascotas (nombre, raza_id, sexo, fecha_nacimiento, propietario_id)
+VALUES ('Copito', @nueva_raza, 'M', DATE_SUB(CURDATE(), INTERVAL 3 MONTH), 3);
+SET @nueva_mascota = LAST_INSERT_ID();
+
+INSERT INTO consultas_medicas (mascota_id, veterinario_id, fecha_consulta, motivo, diagnostico)
+VALUES (@nueva_mascota, 4, NOW(), 'Revisión inicial', NULL);
 SET @nueva_consulta = LAST_INSERT_ID();
 
-SELECT mascota, especie, etapa_vida, propietario, veterinario
+-- INSERT … SELECT: copia el precio actual de lista como precio aplicado
+INSERT INTO detalle_consultas (consulta_id, tratamiento_id, precio_aplicado)
+SELECT @nueva_consulta, tratamiento_id, precio
+FROM tratamientos
+WHERE nombre IN ('Consulta general', 'Desparasitación');
+
+SELECT mascota, especie, raza, etapa_vida, propietario, veterinario, tratamientos, total
 FROM vw_historia_clinica WHERE consulta_id = @nueva_consulta;
--- Esperado: Copito · Hámster · Cachorro · Camila Torres · Felipe Castro
+-- Esperado: Copito · Hámster · Sirio · Cachorro · Camila Torres · Felipe Castro ·
+--           Consulta general, Desparasitación · 75000
 
 -- G2. "Actualiza el diagnóstico" → dispara el trigger
 UPDATE consultas_medicas SET diagnostico = 'Sano' WHERE consulta_id = @nueva_consulta;
@@ -457,28 +539,38 @@ SELECT consulta_id, diagnostico_anterior, diagnostico_nuevo
 FROM historial_diagnosticos WHERE consulta_id = @nueva_consulta;
 -- Esperado: 1 fila (NULL → Sano)
 
--- G3. "Sube 10 % las tarifas de cirugía" (UPDATE de varias filas)
-UPDATE consultas_medicas SET costo = costo * 1.10 WHERE veterinario_id = 2;
-SELECT consulta_id, costo FROM consultas_medicas WHERE veterinario_id = 2;
--- Esperado: consulta 3 → 165000.00
+-- G3. "Sube 10 % el precio de la radiografía"
+-- El precio de lista cambia, pero lo cobrado en la consulta 3 no.
+UPDATE tratamientos SET precio = precio * 1.10 WHERE tratamiento_id = 5;
+SELECT t.precio AS precio_nuevo, d.precio_aplicado AS cobrado_en_consulta_3
+FROM tratamientos t
+INNER JOIN detalle_consultas d ON d.tratamiento_id = t.tratamiento_id
+WHERE t.tratamiento_id = 5;
+-- Esperado: 88000.00 y 80000.00
 
--- G4. "Borra la mascota nueva": primero los hijos (consultas), luego el padre
+-- G4. "Borra todo lo que creaste": del hijo al padre
+DELETE FROM detalle_consultas WHERE consulta_id = @nueva_consulta;
 DELETE FROM consultas_medicas WHERE consulta_id = @nueva_consulta;
 DELETE FROM mascotas          WHERE mascota_id  = @nueva_mascota;
+DELETE FROM razas             WHERE raza_id     = @nueva_raza;
 
 ROLLBACK;   -- deshace G1 a G4, incluido lo que escribió el trigger
 
 SELECT COUNT(*) AS mascotas FROM mascotas;                              -- 6 otra vez
-SELECT costo FROM consultas_medicas WHERE consulta_id = 3;              -- 150000.00 otra vez
+SELECT precio FROM tratamientos WHERE tratamiento_id = 5;               -- 80000.00 otra vez
 
 -- DEMO ERROR 1451: no se puede borrar un propietario que tiene mascotas
 -- DELETE FROM propietarios WHERE propietario_id = 1;
+-- DEMO ERROR 1451: ni una consulta que tiene detalle (primero se borra el detalle)
+-- DELETE FROM consultas_medicas WHERE consulta_id = 1;
 -- DEMO ERROR 1452: no existe el propietario 99
--- INSERT INTO mascotas (nombre, especie_id, sexo, propietario_id) VALUES ('Fantasma', 1, 'M', 99);
+-- INSERT INTO mascotas (nombre, raza_id, sexo, propietario_id) VALUES ('Fantasma', 1, 'M', 99);
 -- DEMO ERROR 1062: valor duplicado en una columna UNIQUE
 -- INSERT INTO especies (nombre) VALUES ('Perro');
--- DEMO ERROR 3819: viola el CHECK (costo >= 0)
--- INSERT INTO consultas_medicas (mascota_id, veterinario_id, fecha_consulta, motivo, costo) VALUES (1, 1, NOW(), 'Prueba', -5);
+-- DEMO ERROR 1062: la PK compuesta impide repetir un tratamiento en la misma consulta
+-- INSERT INTO detalle_consultas (consulta_id, tratamiento_id, precio_aplicado) VALUES (1, 1, 50000);
+-- DEMO ERROR 3819: viola el CHECK (precio >= 0)
+-- INSERT INTO tratamientos (nombre, precio) VALUES ('Prueba', -5);
 
 
 -- =====================================================================
@@ -497,7 +589,7 @@ SELECT costo FROM consultas_medicas WHERE consulta_id = 3;              -- 15000
 -- =====================================================================
 
 -- H1. "Agrega una columna color a mascotas" (y quítala)
-ALTER TABLE mascotas ADD COLUMN color VARCHAR(30) NULL AFTER raza;
+ALTER TABLE mascotas ADD COLUMN color VARCHAR(30) NULL AFTER nombre;
 DESCRIBE mascotas;
 ALTER TABLE mascotas DROP COLUMN color;
 
@@ -536,7 +628,8 @@ EXPLAIN SELECT * FROM consultas_medicas WHERE fecha_consulta >= '2026-10-01';
 -- Esperado: type ALL, key NULL (no hay índice sobre la fecha)
 CREATE INDEX ix_consultas_fecha ON consultas_medicas (fecha_consulta);
 EXPLAIN SELECT * FROM consultas_medicas WHERE fecha_consulta >= '2026-10-01';
--- Esperado: type range, key ix_consultas_fecha, rows 5 (antes leía las 8).
+-- Esperado: type range, key ix_consultas_fecha, rows 5 (antes estimaba
+-- leer toda la tabla; rows es una estimación, por eso puede decir 9 con 8 filas).
 -- El optimizador decide según el costo: en tablas muy pequeñas a veces
 -- prefiere ALL aunque exista el índice.
 SHOW INDEX FROM consultas_medicas;
@@ -563,29 +656,29 @@ DROP INDEX ix_consultas_fecha ON consultas_medicas;
 -- =====================================================================
 
 -- I1. Función con IF / ELSEIF (como el ejemplo 2 de los apuntes)
-DROP FUNCTION IF EXISTS ej_categoria_costo;
+DROP FUNCTION IF EXISTS ej_categoria_precio;
 DELIMITER $$
-CREATE FUNCTION ej_categoria_costo(p_costo DECIMAL(10,2))
+CREATE FUNCTION ej_categoria_precio(p_precio DECIMAL(10,2))
 RETURNS VARCHAR(20)
 DETERMINISTIC
 NO SQL
 BEGIN
     DECLARE v_categoria VARCHAR(20);
-    IF p_costo IS NULL THEN
-        SET v_categoria = 'Sin costo';
-    ELSEIF p_costo < 60000 THEN
-        SET v_categoria = 'Económica';
-    ELSEIF p_costo < 100000 THEN
+    IF p_precio IS NULL THEN
+        SET v_categoria = 'Sin precio';
+    ELSEIF p_precio < 40000 THEN
+        SET v_categoria = 'Económico';
+    ELSEIF p_precio < 70000 THEN
         SET v_categoria = 'Estándar';
     ELSE
-        SET v_categoria = 'Especializada';
+        SET v_categoria = 'Especializado';
     END IF;
     RETURN v_categoria;
 END$$
 DELIMITER ;
 
-SELECT consulta_id, costo, ej_categoria_costo(costo) AS categoria FROM consultas_medicas;
--- Esperado: 7 (50000) Económica · 2 (85000) Estándar · 3 (150000) Especializada
+SELECT nombre, precio, ej_categoria_precio(precio) AS categoria FROM tratamientos ORDER BY precio;
+-- Esperado: igual que C10 (mismo resultado con CASE en línea o con función)
 
 -- I2. Función que transforma texto (como formato_correo del taller)
 DROP FUNCTION IF EXISTS ej_correo_veterinario;
@@ -604,29 +697,33 @@ SELECT nombre, apellido, ej_correo_veterinario(nombre, apellido) AS correo FROM 
 -- las quitaría con REPLACE)
 
 -- I3. Función que LEE tablas → READS SQL DATA (comparar con I1 e I2)
-DROP FUNCTION IF EXISTS ej_total_consultas_mascota;
+DROP FUNCTION IF EXISTS ej_total_consulta;
 DELIMITER $$
-CREATE FUNCTION ej_total_consultas_mascota(p_mascota_id INT)
-RETURNS INT
+CREATE FUNCTION ej_total_consulta(p_consulta_id INT)
+RETURNS DECIMAL(10,2)
 READS SQL DATA
 BEGIN
-    DECLARE v_total INT;
-    SELECT COUNT(*) INTO v_total FROM consultas_medicas WHERE mascota_id = p_mascota_id;
+    DECLARE v_total DECIMAL(10,2);
+    SELECT COALESCE(SUM(precio_aplicado), 0) INTO v_total
+    FROM detalle_consultas
+    WHERE consulta_id = p_consulta_id;
     RETURN v_total;
 END$$
 DELIMITER ;
 
-SELECT nombre, ej_total_consultas_mascota(mascota_id) AS consultas FROM mascotas;
--- Esperado: Max 2, Luna 1, Rocky 2, Kiwi 1, Nieve 1, Toby 1
+SELECT consulta_id, motivo, ej_total_consulta(consulta_id) AS total FROM consultas_medicas;
+-- Esperado: 1 90000 · 2 110000 · 3 130000 · 4 110000 · 5 90000 · 6 85000 · 7 50000 · 8 120000
 
 -- I4. Procedimiento sin parámetros que devuelve un resultado
 DROP PROCEDURE IF EXISTS ej_listar_mascotas;
 DELIMITER $$
 CREATE PROCEDURE ej_listar_mascotas()
 BEGIN
-    SELECT m.nombre AS mascota, e.nombre AS especie, CONCAT(p.nombre, ' ', p.apellido) AS propietario
+    SELECT m.nombre AS mascota, r.nombre AS raza, e.nombre AS especie,
+           CONCAT(p.nombre, ' ', p.apellido) AS propietario
     FROM mascotas m
-    INNER JOIN especies     e ON e.especie_id     = m.especie_id
+    INNER JOIN razas        r ON r.raza_id        = m.raza_id
+    INNER JOIN especies     e ON e.especie_id     = r.especie_id
     INNER JOIN propietarios p ON p.propietario_id = m.propietario_id
     ORDER BY m.nombre;
 END$$
@@ -659,7 +756,8 @@ CREATE PROCEDURE ej_contar_por_especie(IN p_especie VARCHAR(40), OUT p_total INT
 BEGIN
     SELECT COUNT(m.mascota_id) INTO p_total
     FROM especies e
-    LEFT JOIN mascotas m ON m.especie_id = e.especie_id
+    LEFT JOIN razas    r ON r.especie_id = e.especie_id
+    LEFT JOIN mascotas m ON m.raza_id    = r.raza_id
     WHERE e.nombre = p_especie;
 END$$
 DELIMITER ;
@@ -694,27 +792,31 @@ SET @valor = 100000;
 CALL ej_aplicar_descuento(@valor, 10);
 SELECT @valor AS con_descuento;     -- Esperado: 90000.00
 
--- I9. Procedimiento que INSERTA y devuelve el ID nuevo por OUT
+-- I9. Procedimiento que INSERTA en dos tablas y devuelve el ID nuevo por OUT
 DROP PROCEDURE IF EXISTS ej_registrar_consulta;
 DELIMITER $$
 CREATE PROCEDURE ej_registrar_consulta(
     IN  p_mascota_id     INT,
     IN  p_veterinario_id INT,
     IN  p_motivo         VARCHAR(150),
-    IN  p_costo          DECIMAL(10,2),
     OUT p_consulta_id    INT
 )
 BEGIN
-    INSERT INTO consultas_medicas (mascota_id, veterinario_id, fecha_consulta, motivo, costo)
-    VALUES (p_mascota_id, p_veterinario_id, NOW(), p_motivo, p_costo);
+    INSERT INTO consultas_medicas (mascota_id, veterinario_id, fecha_consulta, motivo)
+    VALUES (p_mascota_id, p_veterinario_id, NOW(), p_motivo);
     SET p_consulta_id = LAST_INSERT_ID();
+
+    -- toda consulta lleva al menos la consulta general, al precio de hoy
+    INSERT INTO detalle_consultas (consulta_id, tratamiento_id, precio_aplicado)
+    SELECT p_consulta_id, tratamiento_id, precio
+    FROM tratamientos WHERE nombre = 'Consulta general';
 END$$
 DELIMITER ;
 
 START TRANSACTION;
-CALL ej_registrar_consulta(4, 4, 'Control de plumaje', 40000, @id_nueva);
-SELECT @id_nueva AS consulta_creada, mascota, veterinario
-FROM vw_historia_clinica WHERE consulta_id = @id_nueva;     -- Kiwi · Felipe Castro
+CALL ej_registrar_consulta(4, 4, 'Control de plumaje', @id_nueva);
+SELECT @id_nueva AS consulta_creada, mascota, veterinario, tratamientos, total
+FROM vw_historia_clinica WHERE consulta_id = @id_nueva;     -- Kiwi · Felipe Castro · 50000
 ROLLBACK;
 
 
@@ -754,15 +856,48 @@ ROLLBACK;
 -- que borra el trigger: sin él, la fila SÍ se inserta):
 -- INSERT INTO propietarios (documento, nombre, apellido, telefono, email) VALUES ('1070707070', 'Ana', 'Ruiz', '3000000000', 'correo-sin-arroba');
 
--- J2. AFTER DELETE: guarda la mascota borrada (como los casos 1 y 3 del parcial)
+-- J2. AFTER UPDATE con condición: auditar cambios de precio
+-- (lo que pide el Caso 5, aplicado a nuestros tratamientos)
+DROP TABLE IF EXISTS ej_historial_precios;
+CREATE TABLE ej_historial_precios (
+    id              INT           NOT NULL AUTO_INCREMENT,
+    tratamiento_id  INT           NOT NULL,
+    precio_anterior DECIMAL(10,2) NOT NULL,
+    precio_nuevo    DECIMAL(10,2) NOT NULL,
+    modificado_por  VARCHAR(100)  NOT NULL,
+    fecha_cambio    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id)
+) ENGINE = InnoDB;
+
+DROP TRIGGER IF EXISTS tg_ej_historial_precio;
+DELIMITER $$
+CREATE TRIGGER tg_ej_historial_precio
+AFTER UPDATE ON tratamientos
+FOR EACH ROW
+BEGIN
+    IF OLD.precio <> NEW.precio THEN          -- precio es NOT NULL: aquí <> es seguro
+        INSERT INTO ej_historial_precios (tratamiento_id, precio_anterior, precio_nuevo, modificado_por)
+        VALUES (OLD.tratamiento_id, OLD.precio, NEW.precio, USER());
+    END IF;
+END$$
+DELIMITER ;
+
+START TRANSACTION;
+UPDATE tratamientos SET nombre = 'Consulta médica general' WHERE tratamiento_id = 1;  -- no audita
+UPDATE tratamientos SET precio = 55000 WHERE tratamiento_id = 1;                      -- audita
+SELECT tratamiento_id, precio_anterior, precio_nuevo FROM ej_historial_precios;
+-- Esperado: 1 fila (50000 → 55000)
+ROLLBACK;
+
+-- J3. AFTER DELETE: guarda la mascota borrada (como los casos 1 y 3 del parcial)
 DROP TABLE IF EXISTS ej_mascotas_eliminadas;
 CREATE TABLE ej_mascotas_eliminadas (
-    id               INT          NOT NULL AUTO_INCREMENT,
-    mascota_id       INT          NOT NULL,
-    nombre           VARCHAR(50)  NOT NULL,
-    propietario_id   INT          NOT NULL,
-    eliminado_por    VARCHAR(100) NOT NULL,
-    fecha_eliminacion TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id                INT          NOT NULL AUTO_INCREMENT,
+    mascota_id        INT          NOT NULL,
+    nombre            VARCHAR(50)  NOT NULL,
+    propietario_id    INT          NOT NULL,
+    eliminado_por     VARCHAR(100) NOT NULL,
+    fecha_eliminacion TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 ) ENGINE = InnoDB;
 
@@ -778,7 +913,7 @@ END$$
 DELIMITER ;
 
 START TRANSACTION;
-INSERT INTO mascotas (nombre, especie_id, sexo, propietario_id) VALUES ('Temporal', 5, 'H', 2);
+INSERT INTO mascotas (nombre, raza_id, sexo, propietario_id) VALUES ('Temporal', 6, 'H', 2);
 DELETE FROM mascotas WHERE mascota_id = LAST_INSERT_ID();
 SELECT mascota_id, nombre, eliminado_por FROM ej_mascotas_eliminadas;
 -- Esperado: 1 fila (Temporal)
@@ -795,25 +930,26 @@ ROLLBACK;
 -- =====================================================================
 
 -- K1. "Consulta la vista con un filtro"
-SELECT mascota, etapa_vida, veterinario, diagnostico
+SELECT mascota, etapa_vida, veterinario, diagnostico, total
 FROM vw_historia_clinica
 WHERE etapa_vida = 'Senior';
 -- Esperado: 3 filas (Rocky ×2, Nieve)
 
 -- K2. "Crea una vista de resumen por propietario"
 CREATE OR REPLACE VIEW ej_vw_resumen_propietario AS
-SELECT CONCAT(p.nombre, ' ', p.apellido) AS propietario,
-       COUNT(DISTINCT m.mascota_id)      AS mascotas,
-       COUNT(c.consulta_id)              AS consultas,
-       COALESCE(SUM(c.costo), 0)         AS total_gastado
+SELECT CONCAT(p.nombre, ' ', p.apellido)   AS propietario,
+       COUNT(DISTINCT m.mascota_id)        AS mascotas,
+       COUNT(DISTINCT c.consulta_id)       AS consultas,
+       COALESCE(SUM(d.precio_aplicado), 0) AS total_gastado
 FROM propietarios p
 LEFT JOIN mascotas m          ON m.propietario_id = p.propietario_id
 LEFT JOIN consultas_medicas c ON c.mascota_id     = m.mascota_id
+LEFT JOIN detalle_consultas d ON d.consulta_id    = c.consulta_id
 GROUP BY p.propietario_id, p.nombre, p.apellido;
 
 SELECT * FROM ej_vw_resumen_propietario ORDER BY total_gastado DESC;
--- Esperado: Laura 2/3/270000 · Andrés 1/2/200000 · Julián 1/1/90000 ·
---           Camila 1/1/70000 · Valentina 1/1/55000
+-- Esperado: Laura 2/3/285000 · Andrés 1/2/180000 · Valentina 1/1/120000 ·
+--           Camila 1/1/110000 · Julián 1/1/90000
 
 -- K3. Ver, listar y borrar vistas
 SHOW CREATE VIEW ej_vw_resumen_propietario;
@@ -843,13 +979,15 @@ DROP VIEW IF EXISTS ej_vw_resumen_propietario;
 -- Z. LIMPIEZA: deja la BD como la entrega el script del parcial
 -- =====================================================================
 DROP TRIGGER   IF EXISTS tg_ej_email_propietario;
+DROP TRIGGER   IF EXISTS tg_ej_historial_precio;
 DROP TRIGGER   IF EXISTS tg_ej_mascota_eliminada;
+DROP TABLE     IF EXISTS ej_historial_precios;
 DROP TABLE     IF EXISTS ej_mascotas_eliminadas;
 DROP TABLE     IF EXISTS ej_vacunas;
 DROP VIEW      IF EXISTS ej_vw_resumen_propietario;
-DROP FUNCTION  IF EXISTS ej_categoria_costo;
+DROP FUNCTION  IF EXISTS ej_categoria_precio;
 DROP FUNCTION  IF EXISTS ej_correo_veterinario;
-DROP FUNCTION  IF EXISTS ej_total_consultas_mascota;
+DROP FUNCTION  IF EXISTS ej_total_consulta;
 DROP PROCEDURE IF EXISTS ej_listar_mascotas;
 DROP PROCEDURE IF EXISTS ej_consultas_por_mascota;
 DROP PROCEDURE IF EXISTS ej_contar_por_especie;
@@ -858,4 +996,4 @@ DROP PROCEDURE IF EXISTS ej_aplicar_descuento;
 DROP PROCEDURE IF EXISTS ej_registrar_consulta;
 DROP USER      IF EXISTS 'practica_huellas'@'localhost';
 
-SHOW FULL TABLES;    -- Esperado: las 6 tablas del parcial + vw_historia_clinica
+SHOW FULL TABLES;    -- Esperado: las 10 tablas del parcial + vw_historia_clinica

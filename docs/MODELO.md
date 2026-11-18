@@ -6,10 +6,14 @@ Punto 1 del parcial. La implementación está en [`sql/parcial_veterinaria.sql`]
 
 ```mermaid
 erDiagram
-    PROPIETARIOS ||--o{ MASCOTAS : "es dueño de"
-    ESPECIES     ||--o{ MASCOTAS : "clasifica"
-    MASCOTAS     ||--o{ CONSULTAS_MEDICAS : "recibe"
-    VETERINARIOS ||--o{ CONSULTAS_MEDICAS : "atiende"
+    ESPECIES       ||--o{ RAZAS : "agrupa"
+    RAZAS          ||--o{ MASCOTAS : "clasifica"
+    PROPIETARIOS   ||--o{ MASCOTAS : "es dueño de"
+    ESPECIALIDADES ||--o{ VETERINARIOS : "define"
+    MASCOTAS       ||--o{ CONSULTAS_MEDICAS : "recibe"
+    VETERINARIOS   ||--o{ CONSULTAS_MEDICAS : "atiende"
+    CONSULTAS_MEDICAS ||--|{ DETALLE_CONSULTAS : "incluye"
+    TRATAMIENTOS   ||--o{ DETALLE_CONSULTAS : "se aplica en"
     CONSULTAS_MEDICAS ||..o{ HISTORIAL_DIAGNOSTICOS : "audita (trigger, sin FK)"
 
     PROPIETARIOS {
@@ -25,21 +29,30 @@ erDiagram
         int especie_id PK
         varchar nombre UK
     }
+    RAZAS {
+        int raza_id PK
+        varchar nombre "UK con especie_id"
+        int especie_id FK
+    }
     MASCOTAS {
         int mascota_id PK
         varchar nombre
-        int especie_id FK
-        varchar raza "NULL"
+        int raza_id FK
         char sexo "M | H"
         date fecha_nacimiento "NULL"
         int propietario_id FK
+    }
+    ESPECIALIDADES {
+        int especialidad_id PK
+        varchar nombre UK
     }
     VETERINARIOS {
         int veterinario_id PK
         varchar tarjeta_profesional UK
         varchar nombre
         varchar apellido
-        varchar especialidad
+        varchar telefono
+        int especialidad_id FK
     }
     CONSULTAS_MEDICAS {
         int consulta_id PK
@@ -48,7 +61,16 @@ erDiagram
         datetime fecha_consulta
         varchar motivo
         varchar diagnostico "NULL"
-        decimal costo "CHECK >= 0"
+    }
+    TRATAMIENTOS {
+        int tratamiento_id PK
+        varchar nombre UK
+        decimal precio "precio actual, CHECK >= 0"
+    }
+    DETALLE_CONSULTAS {
+        int consulta_id PK,FK
+        int tratamiento_id PK,FK
+        decimal precio_aplicado "CHECK >= 0"
     }
     HISTORIAL_DIAGNOSTICOS {
         int historial_id PK
@@ -65,26 +87,40 @@ erDiagram
 
 | Relación | Tipo | Cómo se implementa |
 |---|---|---|
+| Especie → Razas | 1:N | `razas.especie_id` FK |
+| Raza → Mascotas | 1:N | `mascotas.raza_id` FK |
 | Propietario → Mascotas | 1:N | `mascotas.propietario_id` FK |
-| Especie → Mascotas | 1:N | `mascotas.especie_id` FK |
-| Mascotas ↔ Veterinarios | **N:M** | Tabla intermedia `consultas_medicas`, que además guarda los datos propios de cada atención (fecha, motivo, diagnóstico, costo) |
+| Especialidad → Veterinarios | 1:N | `veterinarios.especialidad_id` FK |
+| Mascotas ↔ Veterinarios | **N:M** | Tabla `consultas_medicas`, que además guarda los datos de cada atención (fecha, motivo, diagnóstico) |
+| Consultas ↔ Tratamientos | **N:M** | Tabla `detalle_consultas` con **PK compuesta** `(consulta_id, tratamiento_id)`: un mismo tratamiento no se repite en una consulta |
 | Consulta → Historial | 1:N lógica | `historial_diagnosticos.consulta_id` **sin FK**, a propósito: la auditoría debe sobrevivir aunque la consulta se borre |
 
 ## Normalización
 
-Si se partiera de una sola tabla "planilla de consultas", cada fila repetiría los datos del dueño, de la mascota, de su especie y del veterinario. Así se llega a las tablas finales:
+Si se partiera de una sola "planilla de consultas", cada fila repetiría los datos del dueño, de la mascota, su raza y especie, del veterinario y su especialidad, y una lista de tratamientos con precios. Así se llega a las 9 tablas:
 
 **1FN: valores atómicos, sin grupos repetidos**
-- `nombre` y `apellido` en columnas separadas, y un teléfono por propietario.
-- Cada consulta es una fila. No hay columnas como `consulta1`, `consulta2`…
+- La lista de tratamientos de una consulta es un grupo repetido. Pasa a `detalle_consultas`, con una fila por tratamiento.
+- `nombre` y `apellido` van en columnas separadas, y el título ("Dr.") no se guarda dentro del nombre.
 
 **2FN: sin dependencias parciales**
-- En la planilla, la clave sería (mascota, veterinario, fecha). El nombre del dueño depende solo de la mascota y la especialidad solo del veterinario, así que se separan en `mascotas`, `propietarios` y `veterinarios`.
-- Todas las tablas finales tienen clave primaria simple (`AUTO_INCREMENT`), por lo que cumplen 2FN directamente.
+- `detalle_consultas` es la única tabla con PK compuesta. Sus atributos dependen de la clave completa:
+  - `precio_aplicado` depende de la consulta **y** del tratamiento: es lo que se cobró por ese tratamiento en esa consulta.
+  - El nombre del tratamiento depende solo de `tratamiento_id`, así que se queda en `tratamientos`.
+- Las demás tablas tienen PK simple (`AUTO_INCREMENT`) y cumplen 2FN directamente.
 
 **3FN: sin dependencias transitivas**
-- `mascota → especie → nombre de la especie`: la especie pasa a su propia tabla, `especies`. Así "Perro" se escribe una sola vez y no puede quedar como "perro" o "Perr0" en otra fila.
-- `propietario → teléfono`: el teléfono vive en `propietarios`, no se copia en cada mascota ni en cada consulta.
-- **No se guarda la edad.** Depende de `fecha_nacimiento` y de la fecha actual, y almacenarla crearía un dato que se desactualiza. Se calcula al consultar con `TIMESTAMPDIFF(YEAR, fecha_nacimiento, CURDATE())`, que es lo que recibe `fn_etapa_vida`.
+- **`mascota → raza → especie`:** `mascotas` guarda solo `raza_id`. Si también guardara `especie_id`, una mascota podría quedar como "Siamés" y "Perro" a la vez.
+- **`veterinario → especialidad → nombre de la especialidad`:** pasa a la tabla `especialidades`.
+- **`propietario → teléfono`:** el teléfono vive en `propietarios` y no se copia en cada mascota.
+- **No se guardan datos derivados:**
+  - La **edad** se calcula con `TIMESTAMPDIFF(YEAR, fecha_nacimiento, CURDATE())`.
+  - El **total de una consulta** se calcula con `SUM(precio_aplicado)`. Guardarlo permitiría que no coincidiera con su detalle.
 
-**Claves candidatas protegidas con `UNIQUE`:** `propietarios.documento`, `propietarios.email`, `veterinarios.tarjeta_profesional` y `especies.nombre`.
+**¿Por qué `precio_aplicado` no es redundante con `tratamientos.precio`?** Porque son datos distintos. `tratamientos.precio` es el precio **actual** de lista; `precio_aplicado` es lo que **se cobró ese día**. En los datos de prueba, la consulta 1 se cobró a 45.000 y hoy la consulta general vale 50.000. Si se calculara desde el precio actual, cada cambio de precio alteraría las facturas pasadas.
+
+**Claves candidatas protegidas con `UNIQUE`:**
+- `propietarios.documento` y `propietarios.email`.
+- `veterinarios.tarjeta_profesional`.
+- El nombre en `especies`, `especialidades` y `tratamientos`.
+- `(especie_id, nombre)` en `razas`, porque "Criollo" puede existir en varias especies.
